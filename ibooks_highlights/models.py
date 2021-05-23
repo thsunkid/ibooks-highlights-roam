@@ -9,7 +9,7 @@ from slugify import slugify
 
 from ibooks_highlights.util import (
     cmp_to_key, query_compare_no_asset_id, TEMPLATE_ENVIRONMENT,
-    NS_TIME_INTERVAL_SINCE_1970)
+    NS_TIME_INTERVAL_SINCE_1970, custom_strftime_roam)
 from ibooks_highlights.ibooksdb import SqliteQueryType
 
 
@@ -85,40 +85,41 @@ class Book(object):
 
         if 'sync_notes' in book.keys():
             self._sync_notes = bool(book['sync_notes'])
+        
+        ### Did not use this
+        # self._prev_content = book.content
 
-        self._prev_content = book.content
+        # self._reader_notes = ''
 
-        self._reader_notes = ''
+        # reader_notes_start = None
+        # ibooks_notes_start = None
 
-        reader_notes_start = None
-        ibooks_notes_start = None
+        # prev_content_lines = self._prev_content.splitlines()
 
-        prev_content_lines = self._prev_content.splitlines()
+        # for i, line in enumerate(prev_content_lines):
+        #     if """<a name="my_notes_dont_delete"></a>""" in line:
+        #         reader_notes_start = i
+        #     if """<a name="ibooks_notes_dont_delete"></a>""" in line:
+        #         ibooks_notes_start = i
 
-        for i, line in enumerate(prev_content_lines):
-            if """<a name="my_notes_dont_delete"></a>""" in line:
-                reader_notes_start = i
-            if """<a name="ibooks_notes_dont_delete"></a>""" in line:
-                ibooks_notes_start = i
+        # # if not present, abort
+        # if reader_notes_start is None and ibooks_notes_start is None:
+        #     return
 
-        # if not present, abort
-        if reader_notes_start is None and ibooks_notes_start is None:
-            return
+        # # if same line, that's not good
+        # if reader_notes_start == ibooks_notes_start:
+        #     raise BookMetadataError('Note section identifiers on same line')
 
-        # if same line, that's not good
-        if reader_notes_start == ibooks_notes_start:
-            raise BookMetadataError('Note section identifiers on same line')
+        # # if different line, select the appropriate portion of the content
+        # if reader_notes_start is None:
+        #     reader_lines = prev_content_lines[3:ibooks_notes_start]
+        # elif reader_notes_start < ibooks_notes_start:
+        #     reader_lines = prev_content_lines[
+        #         reader_notes_start+1:ibooks_notes_start]
+        # else:
+        #     reader_lines = prev_content_lines[reader_notes_start+1:]
 
-        # if different line, select the appropriate portion of the content
-        if reader_notes_start is None:
-            reader_lines = prev_content_lines[3:ibooks_notes_start]
-        elif reader_notes_start < ibooks_notes_start:
-            reader_lines = prev_content_lines[
-                reader_notes_start+1:ibooks_notes_start]
-        else:
-            reader_lines = prev_content_lines[reader_notes_start+1:]
-
-        self._reader_notes = '\n'.join(reader_lines).strip()
+        # self._reader_notes = '\n'.join(reader_lines).strip()
 
     def __str__(self) -> str:
         asset_id = self._asset_id[:8].ljust(8)
@@ -154,7 +155,9 @@ class Book(object):
 
         slug = slugify(value)
         asset_id = self._asset_id[:8].lower()
-        self._filename = f'{slug}-{asset_id}.md'
+        # self._filename = f'{slug}-{asset_id}.md'
+        _filename = f'{slug.replace("-"," ")}'.title()
+        self._filename = _filename + '.md'
 
     @property
     def asset_id(self) -> str:
@@ -219,26 +222,45 @@ class Book(object):
         
         print('updating', self._title)
 
-        mod_date = max([
+        last_mod_date = max([
             anno.modified_date
             for anno in self._annotations
         ])
-        mod_date_str = mod_date.isoformat()
+        last_mod_date_str = custom_strftime_roam('%B {S}, %Y',last_mod_date)
+
+        first_mod_date = min([
+            anno.modified_date
+            for anno in self._annotations
+        ])
+        first_mod_date_str = custom_strftime_roam('%B {S}, %Y',first_mod_date) 
 
         fmpost = frontmatter.Post(
             self.content,
-            asset_id=self._asset_id,
-            title=self.title,
-            author=self.author,
-            modified_date=mod_date_str
+            Start_date =first_mod_date_str,
+            ZZ_Ending_date=last_mod_date_str,
+            Author=self.author,
         )
 
         fn = path / self._filename
 
         with open(fn, 'w') as f:
             s = frontmatter.dumps(fmpost)
+            # post-format
+            s = roam_metadata_pformat(s)
             f.write(s)
 
+def roam_metadata_pformat(s):
+
+    list_lines = s.splitlines()
+    list_lines[0] = "-**Metadata**"
+    
+    # Other metadata from ibooks
+    for i in range(1,4):
+        list_lines[i] = "    -"+list_lines[i]
+        
+    output = "\n".join([l for l in list_lines if l.strip(" ")!=''])
+    output = output.replace("'","").replace("ZZ_Ending_date","Ending_date").replace("_"," ").replace("---\n","")#.replace("Summary","Summary  ↓")
+    return output
 
 class BookList(object):
 
@@ -281,7 +303,7 @@ class BookList(object):
             r
             for r in annos
             if r['asset_id'] is not None and
-            ((r['selected_text'] is not None) or (r['note'] is not None))
+            ((r['selected_text'] not in [None,""]) or (r['note'] not in [None,""]))
         ]
 
         for r in res:
@@ -305,6 +327,7 @@ class BookList(object):
                 str(r['represent_text']) if r['represent_text'] else None)
             chapter = str(r['chapter']) if r['chapter'] else None
             style = str(r['style']) if r['style'] else None
+
 
             anno = Annotation(
                 location=location,

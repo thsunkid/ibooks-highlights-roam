@@ -5,6 +5,7 @@ import pathlib
 from typing import (List, Dict, Optional, Union, Any, Callable)
 from jinja2 import Environment, FileSystemLoader
 
+from datetime import datetime as dt
 NS_TIME_INTERVAL_SINCE_1970 = 978307200
 
 
@@ -16,6 +17,11 @@ TEMPLATE_ENVIRONMENT = Environment(
     lstrip_blocks=False
 )
 
+def suffix(d):
+    return 'th' if 11<=d<=13 else {1:'st',2:'nd',3:'rd'}.get(d%10, 'th')
+
+def custom_strftime_roam(format, t):
+    return "[[" + t.strftime(format).replace('{S}', str(t.day) + suffix(t.day)) + "]]"
 
 def parse_epubcfi(raw: str) -> List[int]:
 
